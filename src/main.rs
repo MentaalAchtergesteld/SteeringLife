@@ -2,6 +2,7 @@ use std::f32::INFINITY;
 
 use food::Food;
 use nannou::{color, event::{Key, Update}, glam::{vec2, Vec2}, prelude::Pow, App, Draw, Frame};
+use nannou_egui::{egui, Egui};
 use rand::{rngs::ThreadRng, Rng};
 use steering_agent::{Dna, SteeringAgent};
 
@@ -9,9 +10,10 @@ mod steering_agent;
 mod food;
 
 
-#[derive(Default)]
 struct Model {
     rng: ThreadRng,
+    egui: Egui,
+
     agents: Vec<SteeringAgent>,
     food: Vec<Food>,
     poison: Vec<Food>,
@@ -31,11 +33,16 @@ fn main() {
 }
 
 fn init(app: &App) -> Model {
-    let _ = app
+    let window_id = app
         .new_window()
+        .title("Steering Life")
         .key_pressed(key_pressed)
+        .raw_event(raw_window_event)
         .view(draw)
-        .build();
+        .build()
+        .unwrap();
+
+    let window = app.window(window_id).unwrap();
 
     let mut rng = rand::thread_rng();
 
@@ -76,16 +83,20 @@ fn init(app: &App) -> Model {
         Food::new_poison(position, &mut rng)
     }).collect::<Vec<Food>>();
 
+    let egui = Egui::from_window(&window);
+
     Model {
         agents,
         food,
         poison,
         rng,
+        egui,
 
         minimum_food_count: food_count,
         minimum_poison_count: poison_count,
         minimum_agent_count: agent_count,
-        ..Default::default()
+        debug: false,
+        follow_mouse: false,
     }
 }
 
@@ -107,12 +118,16 @@ fn find_closest_food(position: Vec2, max_distance: f32, food: &Vec<Food>) -> Opt
     closest
 }
 
-fn update(app: &App, model: &mut Model, _update: Update) {
+fn update(app: &App, model: &mut Model, update: Update) {
+    let delta = update.since_last.as_secs_f32();
+
     let max_hunger_before_dead = 128.0;
     let max_hunger_before_search = 20.0;
 
-
     let mut newborns = Vec::new();
+
+    let mut average_age = 0.;
+    let mut agent_count = 0;
 
     model.agents.retain_mut(|agent| {
         if model.follow_mouse {
@@ -121,7 +136,12 @@ fn update(app: &App, model: &mut Model, _update: Update) {
             agent.update();
             return true;
         }
-        
+
+        agent.age += delta;
+
+        average_age += agent.age;
+        agent_count += 1;
+
         let mut should_retain = true;
 
         let mut touched_poison = false;
@@ -172,6 +192,8 @@ fn update(app: &App, model: &mut Model, _update: Update) {
         should_retain
     });
 
+    average_age /= agent_count as f32;
+
     model.agents.append(&mut newborns);
 
     let window_width = app.window_rect().w();
@@ -214,6 +236,20 @@ fn update(app: &App, model: &mut Model, _update: Update) {
             );
         }
     }
+
+    let egui = &mut model.egui;
+    egui.set_elapsed_time(update.since_start);
+    let ctx = egui.begin_frame();
+
+    egui::Window::new("Steering Life").show(&ctx, |ui| {
+        ui.label(format!("Average lifespan: {:.2}", average_age));
+
+        ui.label(format!("{:.2} FPS", app.fps()));
+    });
+}
+
+fn raw_window_event(_app: &App, model: &mut Model, event: &nannou::winit::event::WindowEvent) {
+    model.egui.handle_raw_event(event);
 }
 
 fn key_pressed(_app: &App, model: &mut Model, key: Key) {
@@ -307,4 +343,5 @@ fn draw(app: &App, model: &Model, frame: Frame) {
     draw_food_and_poison(model, &draw);
 
     draw.to_frame(app, &frame).unwrap();
+    model.egui.draw_to_frame(&frame).unwrap();
 }

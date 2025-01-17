@@ -92,6 +92,7 @@ pub struct SteeringAgent {
     pub direction: f32,
 
     pub hunger: f32,
+    pub age: f32,
 
     pub wander_target: Option<Vec2>,
 
